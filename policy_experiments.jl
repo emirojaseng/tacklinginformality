@@ -2,7 +2,7 @@
 Author: Emiliano Rojas Eng
 This is the code for the paper 
 "Wage and Wealth Inequality in a High-Informality Economy: A Directed Search Model" 2022
-Last Update: July 24, 2023
+Last Update: July 19, 2023
 =#
 
 using JLD2, Interpolations, Plots, Optim, StatsBase, QuadGK, Distributions, 
@@ -11,7 +11,7 @@ Images, ColorSchemes, Measures, PrettyTables
 
 include("methods_ERE-TII.jl")
 
-"This is the main wrapper to print all plots"
+"This is just a wrapper to print all plots"
 function wrapper_main(policy_name)
 
 ####### Baseline Model parameters ########
@@ -42,35 +42,11 @@ elseif policy_name == "policy_probi_ERE-TII"
     image_table2 = Images.load("EC_tables/$(policy_name)_table2.png")
     policy_title = "Punitive: Decrease probability of entering informality \$P_{inf}\$"
 
-elseif policy_name == "policy_delta_i_ERE-TII"
-    @load "scenarios/policy_delta_i_ERE-TII.jld2"
-    image_table = Images.load("EC_tables/$(policy_name)_table.png")
-    image_table2 = Images.load("EC_tables/$(policy_name)_table2.png")
-    policy_title = "Punitive: Increase probability of exiting informality \$\\delta_i\$"
-
 elseif policy_name == "policy_kf_ERE-TII"
     @load "scenarios/policy_kf_ERE-TII.jld2"
     image_table = Images.load("EC_tables/$(policy_name)_table.png")
     image_table2 = Images.load("EC_tables/$(policy_name)_table2.png")
     policy_title = "Barriers to Entry: Reduce fixed cost of \n entering formal market \$k_f\$"
-
-elseif policy_name == "policy_tz_ERE-TII"
-    @load "scenarios/policy_tz_ERE-TII.jld2"
-    image_table = Images.load("EC_tables/$(policy_name)_table.png")
-    image_table2 = Images.load("EC_tables/$(policy_name)_table2.png")
-    policy_title = "Barriers to Entry: Reduce size distortions \$\\tau_z\$"
-
-elseif policy_name == "policy_Iu_ERE-TII"
-    @load "scenarios/policy_Iu_ERE-TII.jld2"
-    image_table = Images.load("EC_tables/$(policy_name)_table.png")
-    image_table2 = Images.load("EC_tables/$(policy_name)_table2.png")
-    policy_title = "Social Security: Universal Basic Income \$I_u\$"
-
-elseif policy_name == "policy_Iu-rho_ERE-TII"
-    @load "scenarios/policy_Iu-rho_ERE-TII.jld2"
-    image_table = Images.load("EC_tables/$(policy_name)_table.png")
-    image_table2 = Images.load("EC_tables/$(policy_name)_table2.png")
-    policy_title = "Social Security: Universal Basic Income \$I_u\$"
 
 elseif policy_name == "policy_insurance_ERE-TII"
     @load "scenarios/policy_insurance_ERE-TII.jld2"
@@ -78,11 +54,12 @@ elseif policy_name == "policy_insurance_ERE-TII"
     image_table2 = Images.load("EC_tables/$(policy_name)_table2.png")
     policy_title = "Social Security: Unemployment Insurance"
 
-elseif policy_name == "policy_insurance_tw_ERE-TII"
-    @load "scenarios/policy_insurance_tw_ERE-TII.jld2"
+elseif policy_name == "policy_Iu_ERE-TII"
+    @load "scenarios/policy_Iu_ERE-TII.jld2"
     image_table = Images.load("EC_tables/$(policy_name)_table.png")
     image_table2 = Images.load("EC_tables/$(policy_name)_table2.png")
-    policy_title = "Social Security: Strengthen unemployment insurance \n (duration \$\\xi\$ and ammount \$\\rho\$) increase \$\\tau_w\$ \n"
+    policy_title = "Social Security: Universal Basic Income \$I_u\$"
+
 else
     println("INVALID NAME")
     return nothing
@@ -96,7 +73,7 @@ V_u_1 = copy(V_u)
 params_1 = copy(params)
 
 N_ind = 100000
-T = 2400
+T = 1200
 z_ind_0, w_ind_0, a_ind_0, c_ind_0, status_ind_0, m_unemp_0 = simulation_baseline(V_f_0, V_i_0, V_u_0, θ_f_0, N_ind, T, params_0)
 
 T_policy = 120
@@ -123,21 +100,21 @@ title = "Formal, informal, and unemployed (%)",
 subtitle = "as % of population"
 )
 hline!([0], color = :black, label = "")
+
 #Uncomment to get the number of formal informal and unemployed inside barplot
-#=
 annotate!([
     (1, (0+per_f[1]/2)*100, text(string(round(per_f[1]*100, digits = 1))*"%", 10)),
     (2, (0+per_f[end]/2)*100, text(string(round(per_f[end]*100, digits = 1))*"%", 10)),
     (1, (per_f[1]+per_i[1]/2)*100, text(string(round(per_i[1]*100, digits = 1))*"%", 10)),
     (2, (per_f[end]+per_i[end]/2)*100, text(string(round(per_i[end]*100, digits = 1))*"%", 10)),
-    (1, (per_f[1]+per_i[1] + per_u[1]/2)*100, text(string(round(per_u[1]*100, digits = 1))*"%", 10)),
-    (2, (per_f[end]+per_i[end] + per_u[end]/2)*100, text(string(round(per_u[end]*100, digits = 1))*"%", 10)),
+    (1, (per_f[1]+per_i[1] + per_u[1]/2)*100, text(string(round(per_u[1]*100, digits = 1))*"%", 10, :white)),
+    (2, (per_f[end]+per_i[end] + per_u[end]/2)*100, text(string(round(per_u[end]*100, digits = 1))*"%", 10, :white)),
 ])
-=#
+
 
 #mean tightness plot
-r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
-    prob_i, τ, τ_z, τ_w, I_u, distribution_a, distribution_b, 
+    r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
     informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
     w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params_0)
 tightness_0 = mean(p.(θ_f_0), dims = [1, 3])[2:end]*100
@@ -148,13 +125,27 @@ label = ["baseline" "policy"],
 legend = :outerbottom,
 color = [:black :red],
 ylabel = "P(θ|w) in %",
-ylim = (0.0, max(60, maximum(tightness_1))),
+ylim = (0.0, max(25, maximum(tightness_1))),
 xlabel = "w\n",
 guidefontsize = 9,
 title = "Probability of getting a formal job\nby wage searched: P(θ|w)",
 )
 
 c_ind = simulation_consumption(z_ind, w_ind, a_ind, status_ind, params, simulation_get_all_funs(V_f, V_i, V_u, θ_f, params), N_ind)
+
+#=
+change_all= [(mean(w_ind)-mean(w_ind_0)),
+(mean(a_ind)-mean(a_ind_0)),
+(mean(c_ind)-mean(c_ind_0))]
+
+change_formal = [(mean(w_ind[status_ind_0 .==1])-mean(w_ind_0[status_ind_0 .==1])),
+(mean(a_ind[status_ind_0 .==1])-mean(a_ind_0[status_ind_0 .==1])),
+(mean(c_ind[status_ind_0 .==1])-mean(c_ind_0[status_ind_0 .==1]))]
+
+change_informal = [(mean(w_ind[status_ind_0 .== 2])-mean(w_ind_0[status_ind_0 .== 2])),
+(mean(a_ind[status_ind_0 .== 2])-mean(a_ind_0[status_ind_0 .== 2])),
+(mean(c_ind[status_ind_0 .== 2])-mean(c_ind_0[status_ind_0 .== 2]))]
+=#
 
 a_min = params_0["a_min"]
 
@@ -184,6 +175,7 @@ change_informal_to_formal = [(mean(w_ind[agents_informal_to_formal])/mean(w_ind_
 changes_matrix = [change_all change_always_formal change_always_informal change_informal_to_formal]
 
 p3 = groupedbar(changes_matrix,
+    ylim = (min(-5.0, minimum(changes_matrix)*1.05), max(40.0, maximum(changes_matrix)*1.05)),
     label=["all" "always formal" "always informal" "transitions from informal to formal"],
     legend = :outerbottom,
     xticks = (1:3, ["income", "wealth", "consumption"]),
@@ -202,8 +194,12 @@ Tc_within_i[end] - Tc_within_i[1]]
 
 Theil_matrix = [T_withins_i T_withins_f T_betweens]
 
+#return Theil_matrix
+plot_y_max = maximum(sum(Theil_matrix.*(Theil_matrix .> 0), dims = 2))*1.1
+plot_y_min = minimum(sum(Theil_matrix.*(Theil_matrix .< 0), dims = 2))*1.1
+
 p4 = groupedbar(Theil_matrix,
-    ylim = (min(-0.15, minimum(Theil_matrix)*1.3), max(0.15, maximum(Theil_matrix)*1.3)),
+    ylim = (min(-0.05, plot_y_min), max(0.05, plot_y_max)),
     bar_position = :stack,
     label=["inequality within informal" "inequality within formal" "inequality between formal and informal"],
     legend = :outerbottom,
@@ -223,7 +219,7 @@ p5 = plot(image_table,
 border = :none,
 title = "Welfare: Equivalent Consumptions")
 
-#Plot 6 is a table with more results
+#Plot 6 is a table with more results (From bootstrap_outer)
 p6 = plot(image_table2,
 border = :none,
 title = "Additional statistics")
@@ -275,26 +271,14 @@ function wrapper_EC(policy_name)
     elseif policy_name == "policy_probi_ERE-TII"
         @load "scenarios/policy_probi_ERE-TII.jld2"
 
-    elseif policy_name == "policy_delta_i_ERE-TII"
-        @load "scenarios/policy_delta_i_ERE-TII.jld2"
-
     elseif policy_name == "policy_kf_ERE-TII"
         @load "scenarios/policy_kf_ERE-TII.jld2"
-
-    elseif policy_name == "policy_tz_ERE-TII"
-        @load "scenarios/policy_tz_ERE-TII.jld2"
-
-    elseif policy_name == "policy_Iu_ERE-TII"
-        @load "scenarios/policy_Iu_ERE-TII.jld2"
-
-    elseif policy_name == "policy_Iu-rho_ERE-TII"
-        @load "scenarios/policy_Iu-rho_ERE-TII.jld2"
 
     elseif policy_name == "policy_insurance_ERE-TII"
         @load "scenarios/policy_insurance_ERE-TII.jld2"
 
-    elseif policy_name == "policy_insurance_tw_ERE-TII"
-        @load "scenarios/policy_insurance_tw_ERE-TII.jld2"
+    elseif policy_name == "policy_Iu_ERE-TII"
+        @load "scenarios/policy_Iu_ERE-TII.jld2"
 
     else
         println("INVALID NAME")
@@ -369,26 +353,14 @@ function bootstrap_outer(policy_name, num_bootstrap_samples)
     elseif policy_name == "policy_probi_ERE-TII"
         @load "scenarios/policy_probi_ERE-TII.jld2"
 
-    elseif policy_name == "policy_delta_i_ERE-TII"
-        @load "scenarios/policy_delta_i_ERE-TII.jld2"
-
     elseif policy_name == "policy_kf_ERE-TII"
         @load "scenarios/policy_kf_ERE-TII.jld2"
-
-    elseif policy_name == "policy_tz_ERE-TII"
-        @load "scenarios/policy_tz_ERE-TII.jld2"
-
-    elseif policy_name == "policy_Iu_ERE-TII"
-        @load "scenarios/policy_Iu_ERE-TII.jld2"
-
-    elseif policy_name == "policy_Iu-rho_ERE-TII"
-        @load "scenarios/policy_Iu-rho_ERE-TII.jld2"
 
     elseif policy_name == "policy_insurance_ERE-TII"
         @load "scenarios/policy_insurance_ERE-TII.jld2"
 
-    elseif policy_name == "policy_insurance_tw_ERE-TII"
-        @load "scenarios/policy_insurance_tw_ERE-TII.jld2"
+    elseif policy_name == "policy_Iu_ERE-TII"
+        @load "scenarios/policy_Iu_ERE-TII.jld2"
 
     else
         println("INVALID NAME")
@@ -464,9 +436,7 @@ end
 wrapper_main("policy_tw_ERE-TII")
 wrapper_main("policy_tau_ERE-TII")
 wrapper_main("policy_probi_ERE-TII")
-wrapper_main("policy_delta_i_ERE-TII")
 wrapper_main("policy_kf_ERE-TII")
-wrapper_main("policy_tz_ERE-TII")
 wrapper_main("policy_insurance_ERE-TII")
 wrapper_main("policy_Iu_ERE-TII")
 
@@ -475,14 +445,12 @@ wrapper_main("policy_Iu_ERE-TII")
 ols_states_1, ols_status_1 = wrapper_EC("policy_tw_ERE-TII")
 ols_states_2, ols_status_2 = wrapper_EC("policy_tau_ERE-TII")
 ols_states_3, ols_status_3 = wrapper_EC("policy_probi_ERE-TII")
-ols_states_4, ols_status_4 = wrapper_EC("policy_delta_i_ERE-TII")
-ols_states_5, ols_status_5 = wrapper_EC("policy_kf_ERE-TII")
-ols_states_6, ols_status_6 = wrapper_EC("policy_tz_ERE-TII")
-ols_states_7, ols_status_7 = wrapper_EC("policy_insurance_ERE-TII")
-ols_states_8, ols_status_8 = wrapper_EC("policy_Iu_ERE-TII")
+ols_states_4, ols_status_4 = wrapper_EC("policy_kf_ERE-TII")
+ols_states_5, ols_status_5 = wrapper_EC("policy_insurance_ERE-TII")
+ols_states_6, ols_status_6 = wrapper_EC("policy_Iu_ERE-TII")
 
-regtable(ols_states_1, ols_states_2, ols_states_3, ols_states_4, ols_states_5, ols_states_6,
-ols_states_7, ols_states_8; 
+regtable(ols_states_1, ols_states_2, ols_states_3, ols_states_4,
+ols_states_5, ols_states_6; 
 renderSettings = latexOutput())
 =#
 
@@ -491,9 +459,7 @@ num_bootstrap_samples = 100
 bootstrap_outer("policy_tw_ERE-TII", num_bootstrap_samples)
 bootstrap_outer("policy_tau_ERE-TII", num_bootstrap_samples)
 bootstrap_outer("policy_probi_ERE-TII", num_bootstrap_samples)
-bootstrap_outer("policy_delta_i_ERE-TII", num_bootstrap_samples)
 bootstrap_outer("policy_kf_ERE-TII", num_bootstrap_samples)
-bootstrap_outer("policy_tz_ERE-TII", num_bootstrap_samples)
 bootstrap_outer("policy_insurance_ERE-TII", num_bootstrap_samples)
 bootstrap_outer("policy_Iu_ERE-TII", num_bootstrap_samples)
 =#

@@ -30,7 +30,7 @@ function get_all(J_f, V_f, V_i, V_u, θ_f, params)
         get_policy(V_f, V_i, V_u, θ_f, params);
 
         #get firm value
-        update_J_f!(J_f, θ_f, sector_f_pol, w_ff_pol, a_f_pol, params);
+        update_J_f!(J_f, θ_f, w_ff_pol, a_f_pol, params);
 
         #update market tightness θ_f
         θ_f_old = copy(θ_f)
@@ -41,7 +41,6 @@ function get_all(J_f, V_f, V_i, V_u, θ_f, params)
         println("MAIN ITERATION ERROR IN ITERATION $iters IS $error_θ")
         iters += 1
 
-        #display(plot(a[1:end], (mean(a_f_pol, dims = [1, 2])[1:end] - a[1:end])))
     end
 
     return J_f, V_f, V_i, V_u, θ_f, error_θ
@@ -55,7 +54,7 @@ OUTPUT: updated values of V_f, V_i, V_u
 """
 function iterate_workers!(V_f, V_i, V_u, θ_f, params)
     r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
-    prob_i, τ, τ_z, τ_w, I_u, distribution_a, distribution_b, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
     informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
     w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params)
 
@@ -74,12 +73,12 @@ function iterate_workers!(V_f, V_i, V_u, θ_f, params)
 
     E_V_i = copy(R_ff)
 
-    N_w_u_max = Integer(floor(rho * N_w) + 1)
+    N_w_u_max = min(Integer(floor(rho * N_w) + 1), N_w)
 
     error = 1.0e2
     iters = 1
 
-    while error > tol && iters <= 200
+    while error > tol/2 && iters <= 200
         V_f_old = copy(V_f)
         V_i_old = copy(V_i)    
         V_u_old = copy(V_u)
@@ -87,16 +86,17 @@ function iterate_workers!(V_f, V_i, V_u, θ_f, params)
         #first some auxiliary functions
         
         #calculates expected utility of labouring in the informal economy (given probability distribution of earnings)
-        #V_i_fun = linear_interpolation((z, w, a), V_i)
+        V_i_fun = linear_interpolation((z, w, a), V_i)
         for i_z = 1:N_z, i_a = 1:N_a
-            V_i_1d = interpolate(w, V_i[i_z, :, i_a], SteffenMonotonicInterpolation()) #Interpolation of Value function of informal
-            E_V_i[i_z, :, i_a] .= quadgk(w -> informal_I_distribution(w)*V_i_1d(w), w_min, w_max, rtol=1e-5)[1]
+            #V_i_1d = interpolate(w, V_i[i_z, :, i_a], SteffenMonotonicInterpolation()) #Interpolation of Value function of informal
+            E_V_i[i_z, :, i_a] .= quadgk(w -> informal_I_distribution(w)*V_i_fun(z[i_z], w, a[i_a]), w_min, w_max, rtol=1e-5)[1]
         end
 
+        V_u_fun = linear_interpolation((z, w, a), V_i)
         for (i_z, i_w, i_a) in grid_index
             #calculates for every index i_w, which index corresponds to an unemployment insurance of rho*w[i_w]
-            V_u_1d = interpolate(w, V_i[i_z, :, i_a], SteffenMonotonicInterpolation()) #Interpolation of Value function of unemployment insurance
-            V_bar_f[i_z, i_w, i_a] = δ_f * V_u_1d(rho * w[i_w]) + (1-δ_f) * V_f[i_z, i_w, i_a] #unemployment with insurance or staying the same
+            #V_u_1d = interpolate(w, V_u[i_z, :, i_a], SteffenMonotonicInterpolation()) #Interpolation of Value function of unemployment insurance
+            V_bar_f[i_z, i_w, i_a] = δ_f * V_u_fun(z[i_z], rho * w[i_w], a[i_a]) + (1-δ_f) * V_f[i_z, i_w, i_a]  #unemployment with insurance or staying the same
         end
 
         V_bar_i = δ_i * V_u[:, fill(1, N_w), :] + (1-δ_i) * E_V_i #unemployment without insurance or staying the same
@@ -113,8 +113,10 @@ function iterate_workers!(V_f, V_i, V_u, θ_f, params)
     
         Threads.@threads for (i_z, i_w, i_a) in grid_index
 
-            V_f_1d = interpolate(w, V_f[i_z, :, i_a], SteffenMonotonicInterpolation()) #Interpolation of Value function of formal
-            p_θ_f_1d = interpolate(w, p.(θ_f[i_z, :, i_a]), SteffenMonotonicInterpolation()) #Interpolation of θ_f
+            V_f_1d = linear_interpolation(w, V_f[i_z, :, i_a])#
+            #V_f_1d = interpolate(w[2:end], V_f[i_z, 2:end, i_a], SteffenMonotonicInterpolation()) #Interpolation of Value function of formal
+            p_θ_f_1d = linear_interpolation(w, p.(θ_f[i_z, :, i_a]))#
+            #p_θ_f_1d = interpolate(w[2:end], p.(θ_f[i_z, 2:end, i_a]), SteffenMonotonicInterpolation()) #Interpolation of θ_f
 
             #calculates maximum wage feasible
             upper_bound = sum(θ_f[i_z, 2:end, i_a] .< 1.0e-5) > 0 ? w[2:end][θ_f[i_z, 2:end, i_a] .< 1.0e-5][1] : w[end]
@@ -153,9 +155,12 @@ function iterate_workers!(V_f, V_i, V_u, θ_f, params)
 
         Threads.@threads for (i_z, i_w, i_a) in grid_index
 
-            R_f_1d = interpolate(a, max(R_ff[i_z, i_w, :], R_fi[i_z, i_w, :]), SteffenMonotonicInterpolation())
-            R_i_1d = interpolate(a, max(R_if[i_z, i_w, :], R_ii[i_z, i_w, :]), SteffenMonotonicInterpolation())
-            R_u_1d = interpolate(a, max(R_uf[i_z, i_w, :], R_ui[i_z, i_w, :]), SteffenMonotonicInterpolation())
+            R_f_1d = linear_interpolation(a, max(R_ff[i_z, i_w, :], R_fi[i_z, i_w, :]))#
+            #R_f_1d = interpolate(a, max(R_ff[i_z, i_w, :], R_fi[i_z, i_w, :]), SteffenMonotonicInterpolation())
+            R_i_1d = linear_interpolation(a, max(R_if[i_z, i_w, :], R_ii[i_z, i_w, :]))#
+            #R_i_1d = interpolate(a, max(R_if[i_z, i_w, :], R_ii[i_z, i_w, :]), SteffenMonotonicInterpolation())
+            R_u_1d = linear_interpolation(a, max(R_uf[i_z, i_w, :], R_ui[i_z, i_w, :]))#
+            #R_u_1d = interpolate(a, max(R_uf[i_z, i_w, :], R_ui[i_z, i_w, :]), SteffenMonotonicInterpolation())
 
             #upper bound of wealth is such that is inside [a_min, a_max] and less than the budget constraint
             upper_bound = min(max((I_u + w[i_w]+a[i_a])*(1+r), a[1]), a[N_a])
@@ -191,27 +196,24 @@ function iterate_workers!(V_f, V_i, V_u, θ_f, params)
         end
 
         #Calculates the change in Value Functions. 
-        e_f = quantile(vec(abs.(V_f - V_f_old)[2:end, 2:end, 2:end]), 0.98)
-        e_i = quantile(vec(abs.(V_i - V_i_old)[:, :, 2:end]), 0.98)
+        e_f = quantile(vec(abs.(V_f - V_f_old)[2:end, 2:end, 2:end]), 0.99)
+        e_i = quantile(vec(abs.(V_i - V_i_old)[:, :, 2:end]), 0.99)
         #The error of the unemployed value function only matters for the space that is visited. i.e where income < maximum insurance (rho * w[N_w])
-        e_u = quantile(vec(abs.(V_u - V_u_old)[:, 1:N_w_u_max, 2:end]), 0.98)
+        e_u = quantile(vec(abs.(V_u - V_u_old)[:, 1:N_w_u_max, 2:end]), 0.99)
 
-        #=
-        e_f_a = maximum(vec(abs.(u_inv.(V_f) - u_inv.(V_f_old))[2:end, 2:end, 2:end]))
-        e_i_a = maximum(vec(abs.(u_inv.(V_i) - u_inv.(V_i_old))[:, :, 2:end]))
-        #The error of the unemployed value function only matters for the space that is visited. i.e where income < maximum insurance (rho * w[N_w])
-        e_u_a = maximum(vec(abs.(u_inv.(V_u) - u_inv.(V_u_old))[:, 1:Integer(floor(rho * N_w) + 1), 2:end]))
-        =#
         error = e_f + e_u + e_i
 
-        if mod(iters, 10) == 0
-            #println("error in iteration $iters is e_f = $e_f, e_i = $e_i, e_u = $e_u")
-            #p1 = plot(z[1:end], mean(V_f, dims = [2, 3])[1:end])
-            #p2 = plot(w[2:end], mean(V_f, dims = [1, 3])[2:end])
-            #p3 = plot(a[2:end], mean(V_f, dims = [1, 2])[2:end])
+        if mod(iters, 30) == 0
+            #=
+            p1 = plot(z[1:end], mean(V_i, dims = [2, 3])[1:end])
+            p2 = plot(w[2:end], mean(V_i, dims = [1, 3])[2:end])
+            p3 = plot(a[2:end], mean(V_i, dims = [1, 2])[2:end])
+            display(plot(p1, p2, p3, layout = (1, 3)))
+            #display(plot(V_u[:, 1, 2:end]', legend = false))
+            =#
 
-            #display(plot(p1, p2, p3, layout = (1, 3)))
-            println("error in iteration $iters is $error")
+            println("error in iteration $iters is e_f = $e_f, e_i = $e_i, e_u = $e_u")
+            #println("error in iteration $iters is $error")
         else 
             nothing
         end
@@ -229,7 +231,7 @@ Its literally a copy paste from one interation of iterate_workers, but also save
 """
 function get_policy(V_f, V_i, V_u, θ_f, params)
     r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
-    prob_i, τ, τ_z, τ_w, I_u, distribution_a, distribution_b, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
     informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
     w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params)
 
@@ -263,7 +265,7 @@ function get_policy(V_f, V_i, V_u, θ_f, params)
     a_i_pol = copy(R_ff)
     a_u_pol = copy(R_ff)
 
-    N_w_u_max = Integer(floor(rho * N_w) + 1)
+    N_w_u_max = min(Integer(floor(rho * N_w) + 1), N_w)
 
 
     ## This is a copy paste from iterate_workers!, I will denote the additional code with ###!!!
@@ -271,16 +273,18 @@ function get_policy(V_f, V_i, V_u, θ_f, params)
     #first some auxiliary functions
     
     #calculates expected utility of labouring in the informal economy (given probability distribution of earnings)
+    V_i_fun = linear_interpolation((z, w, a), V_i)
     for i_z = 1:N_z, i_a = 1:N_a
-        V_i_1d = interpolate(w, V_i[i_z, :, i_a], SteffenMonotonicInterpolation()) #Interpolation of Value function of informal
-        E_V_i[i_z, :, i_a] .= quadgk(w -> informal_I_distribution(w)*V_i_1d(w), w_min, w_max, rtol=1e-5)[1]
+        #V_i_1d = interpolate(w, V_i[i_z, :, i_a], SteffenMonotonicInterpolation()) #Interpolation of Value function of informal
+        E_V_i[i_z, :, i_a] .= quadgk(w -> informal_I_distribution(w)*V_i_fun(z[i_z], w, a[i_a]), w_min, w_max, rtol=1e-5)[1]
     end
 
+    V_u_fun = linear_interpolation((z, w, a), V_i)
     for (i_z, i_w, i_a) in grid_index
         #calculates for every index i_w, which index corresponds to an unemployment insurance of rho*w[i_w]
-        V_u_1d = interpolate(w, V_i[i_z, :, i_a], SteffenMonotonicInterpolation()) #Interpolation of Value function of unemployment insurance
-        V_bar_f[i_z, i_w, i_a] = δ_f * V_u_1d(rho * w[i_w]) + (1-δ_f) * V_f[i_z, i_w, i_a] #unemployment with insurance or staying the same
-    end
+        #V_u_1d = interpolate(w, V_u[i_z, :, i_a], SteffenMonotonicInterpolation()) #Interpolation of Value function of unemployment insurance
+        V_bar_f[i_z, i_w, i_a] = δ_f * V_u_fun(z[i_z], rho * w[i_w], a[i_a]) + (1-δ_f) * V_f[i_z, i_w, i_a]  #unemployment with insurance or staying the same
+    end   
     V_bar_i = δ_i * V_u[:, fill(1, N_w), :] + (1-δ_i) * E_V_i #unemployment without insurance or staying the same
     V_bar_u = xi * V_u[:, fill(1, N_w), :] + (1-xi) * V_u # insurance expires or stays the same
 
@@ -295,8 +299,10 @@ function get_policy(V_f, V_i, V_u, θ_f, params)
 
     Threads.@threads for (i_z, i_w, i_a) in grid_index
 
-        V_f_1d = interpolate(w, V_f[i_z, :, i_a], SteffenMonotonicInterpolation()) #Interpolation of Value function of formal
-        p_θ_f_1d = interpolate(w, p.(θ_f[i_z, :, i_a]), SteffenMonotonicInterpolation()) #Interpolation of θ_f
+        V_f_1d = linear_interpolation(w, V_f[i_z, :, i_a])#
+        #V_f_1d = interpolate(w[2:end], V_f[i_z, 2:end, i_a], SteffenMonotonicInterpolation()) #Interpolation of Value function of formal
+        p_θ_f_1d = linear_interpolation(w, p.(θ_f[i_z, :, i_a]))#
+        #p_θ_f_1d = interpolate(w[2:end], p.(θ_f[i_z, 2:end, i_a]), SteffenMonotonicInterpolation()) #Interpolation of θ_f
 
         #calculates maximum wage feasible
         upper_bound = sum(θ_f[i_z, 2:end, i_a] .< 1.0e-5) > 0 ? w[2:end][θ_f[i_z, 2:end, i_a] .< 1.0e-5][1] : w[end]
@@ -344,9 +350,12 @@ function get_policy(V_f, V_i, V_u, θ_f, params)
 
     Threads.@threads for (i_z, i_w, i_a) in grid_index
 
-        R_f_fun = interpolate(a, max(R_ff[i_z, i_w, :], R_fi[i_z, i_w, :]), SteffenMonotonicInterpolation())
-        R_i_fun = interpolate(a, max(R_if[i_z, i_w, :], R_ii[i_z, i_w, :]), SteffenMonotonicInterpolation())
-        R_u_fun = interpolate(a, max(R_uf[i_z, i_w, :], R_ui[i_z, i_w, :]), SteffenMonotonicInterpolation())
+        R_f_fun = linear_interpolation(a, max(R_ff[i_z, i_w, :], R_fi[i_z, i_w, :]))#
+        #R_f_fun = interpolate(a, max(R_ff[i_z, i_w, :], R_fi[i_z, i_w, :]), SteffenMonotonicInterpolation())
+        R_i_fun = linear_interpolation(a, max(R_if[i_z, i_w, :], R_ii[i_z, i_w, :]))#
+        #R_i_fun = interpolate(a, max(R_if[i_z, i_w, :], R_ii[i_z, i_w, :]), SteffenMonotonicInterpolation())
+        R_u_fun = linear_interpolation(a, max(R_uf[i_z, i_w, :], R_ui[i_z, i_w, :]))#
+        #R_u_fun = interpolate(a, max(R_uf[i_z, i_w, :], R_ui[i_z, i_w, :]), SteffenMonotonicInterpolation())
 
         #upper bound of wealth is such that is inside [a_min, a_max] and less than the budget constraint
         upper_bound = min(max((I_u + w[i_w]+a[i_a])*(1+r), a[1]), a[N_a])
@@ -391,32 +400,30 @@ function get_policy(V_f, V_i, V_u, θ_f, params)
 end
 
 """
-Updates the value of the formal firm until convergence (given value functions and policy functions)
+Updates the value of the formal firm (given value functions and policy functions)
 """
-function update_J_f!(J_f, θ_f, sector_f_pol, w_ff_pol, a_f_pol, params)
+function update_J_f!(J_f, θ_f, w_ff_pol, a_f_pol, params)
     r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
-    prob_i, τ, τ_z, τ_w, I_u, distribution_a, distribution_b, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
     informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
     w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params)
 
     J_f_old = copy(J_f)
+    profit = [(1-τ)*(y_f + z[i_z] - (1+τ_w)*w[i_w]) for i_z in 1:N_z, i_w in 1:N_w]
 
     Threads.@threads for (i_z, i_w, i_a) in grid_index
-
-        p_θ_f_1d = interpolate(w, p.(θ_f[i_z, :, i_a]), SteffenMonotonicInterpolation()) #Interpolation of θ_f
-        J_f_1d = interpolate(a, J_f_old[i_z, i_w, :], SteffenMonotonicInterpolation()) #Interpolation of Firm Value function
-
-        #if individual (z, w, a) finds it optimal to remain in the formal sector
-        if sector_f_pol[i_z, i_w, i_a] == 1
-            J_f[i_z, i_w, i_a] = (1-τ)*(y_f + z[i_z] - (1+τ_w)*w[i_w]) + (1-λ_f*p_θ_f_1d(w_ff_pol[i_z, i_w, i_a]))*(1-δ_f)*β*J_f_1d(a_f_pol[i_z, i_w, i_a])
-        #if individual (z, w, a) tries to get out of the formal sector
+        if profit[i_z, i_w] < 0
+            J_f[i_z, i_w, i_a] = 0
         else
-            J_f[i_z, i_w, i_a] = (1-τ)*(y_f + z[i_z] - (1+τ_w)*w[i_w]) + (1-λ_f * prob_i)*(1-δ_f)*β*J_f_1d(a_f_pol[i_z, i_w, i_a])
+            p_θ_f_1d = linear_interpolation(w, p.(θ_f[i_z, :, i_a]))#interpolate(w, p.(θ_f[i_z, :, i_a]), SteffenMonotonicInterpolation()) #Interpolation of θ_f
+            J_f_1d = linear_interpolation(a, J_f_old[i_z, i_w, :])#interpolate(a, J_f_old[i_z, i_w, :], SteffenMonotonicInterpolation()) #Interpolation of Firm Value function
+            J_f[i_z, i_w, i_a] = profit[i_z, i_w] + β*(1-δ_f)*(1-λ_f*p_θ_f_1d(w_ff_pol[i_z, i_w, i_a]))*J_f_1d(a_f_pol[i_z, i_w, i_a])
         end
     end
 
     return J_f
 end
+
 
 """
 This function updates the market tightness for submarket (z, w, a) given the firm value of 
@@ -425,14 +432,14 @@ Free market entry is such that the expected value before entry is 0
 """
 function update_θ!(θ_f, J_f, params)
     r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
-    prob_i, τ, τ_z, τ_w, I_u, distribution_a, distribution_b, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
     informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
     w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params)
 
     Threads.@threads for (i_z, i_w, i_a) in grid_index
         #condition for positive market tightness: profitability high enough
-        if (β * J_f[i_z, i_w, i_a] >= (k_f + τ_z * z[i_z])) & (i_w != 1)
-            θ_f[i_z, i_w, i_a] = min(q_inv((k_f + τ_z * z[i_z])/(β * J_f[i_z, i_w, i_a])), 1.0e5)
+        if (β * J_f[i_z, i_w, i_a] >= (k_f)) & (i_w != 1)
+            θ_f[i_z, i_w, i_a] = min(q_inv(k_f/(β * J_f[i_z, i_w, i_a])), 1.0e5)
         else
             θ_f[i_z, i_w, i_a] = 0.0
         end
@@ -444,47 +451,71 @@ end
 
 """
 This function calculates the error of the main iteration. That is, the old θ_f vs the new θ_f
-It is the sum of squared errors but ignores submarkets that never get visited.
-INPUT: θ_f and θ_f_old to compare and policy functions to decide which markets never get visited
+It is the square root of the sum of squared errors.
+INPUT: θ_f and θ_f_old to compare
 OUTPUT: The error of the iteration: error_θ
 """
 function get_error_θ(θ_f, θ_f_old, sector_f_pol, sector_i_pol, sector_u_pol, w_ff_pol, w_if_pol, w_uf_pol, params)
     r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
-    prob_i, τ, τ_z, τ_w, I_u, distribution_a, distribution_b, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
     informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
     w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params)
 
     #matrix of all squared differences, norm given by p() is calculated
     loss_M = (p.(θ_f)-p.(θ_f_old)).^2
+    error_θ = sqrt(sum(loss_M))
 
-    #the minimum wage searched by those that enter the formal sector, if the submarket has a wage less than this, then there is no one in the submarket
-
-    #=
-    Threads.@threads for (i_z, i_w, i_a) in grid_index
-        #The minimum wage that is searched by each labor status, if vector is empty it is replaced by w_max
-        w_min_search = min(
-            minimum(push!(w_ff_pol[i_z, :, i_a][sector_f_pol[i_z, :, i_a] .== 1], w_max)),
-            minimum(push!(w_if_pol[i_z, :, i_a][sector_i_pol[i_z, :, i_a] .== 1], w_max)),
-            minimum(push!(w_uf_pol[i_z, :, i_a][sector_u_pol[i_z, :, i_a] .== 1], w_max))
-        )
-
-        if w[i_w] < w_min_search
-            loss_M[i_z, i_w, i_a] = 0
-        end
-    end
-    =#
-
-    error_θ = sum(loss_M)
-
-    #Plot market tightness to monitor convergence
-    #=
     p1 = plot(z[1:end], mean(p.(θ_f), dims = [2, 3])[1:end]*100)
     p2 = plot(w[1:end], mean(p.(θ_f), dims = [1, 3])[1:end]*100)
     p3 = plot(a[1:end], mean(p.(θ_f), dims = [1, 2])[1:end]*100)
     display(plot(p1, p2, p3, layout = (1, 3)))
-    =#
 
     return error_θ
+end
+
+"""
+Unconstrains the equilibrium
+"""
+function J_θ_uncons(V_f, V_i, V_u, J_f, θ_f, params)
+    r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
+    informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
+    w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params)
+
+    J_f_unc = copy(J_f)
+    θ_f_unc = copy(θ_f)
+
+    #gets policy functions
+    V_f, V_i, V_u, sector_f_pol, sector_i_pol, sector_u_pol, a_f_pol, a_i_pol, a_u_pol, w_ff_pol, w_if_pol, w_uf_pol,
+    R_ff, R_fi, R_if, R_ii, R_uf, R_ui = 
+    get_policy(V_f, V_i, V_u, θ_f, params);
+
+    J_f_old = copy(J_f)
+
+    profit = [(1-τ)*(y_f + z[i_z] - (1+τ_w)*w[i_w]) for i_z in 1:N_z, i_w in 1:N_w]
+
+    Threads.@threads for (i_z, i_w, i_a) in grid_index
+
+        if profit[i_z, i_w] < 0
+            J_f[i_z, i_w, i_a] = 0
+
+        else
+            p_θ_f_1d = linear_interpolation(w, p.(θ_f[i_z, :, i_a]))#interpolate(w, p.(θ_f[i_z, :, i_a]), SteffenMonotonicInterpolation()) #Interpolation of θ_f
+            J_f_1d = linear_interpolation(a, J_f_old[i_z, i_w, :])#interpolate(a, J_f_old[i_z, i_w, :], SteffenMonotonicInterpolation()) #Interpolation of Firm Value function
+
+            #if individual (z, w, a) finds it optimal to remain in the formal sector
+            if (R_ff-R_fi)[i_z, i_w, i_a] >= 0
+                J_f_unc[i_z, i_w, i_a] = profit[i_z, i_w] + β*(1-δ_f)*(1-λ_f*p_θ_f_1d(w_ff_pol[i_z, i_w, i_a]))*J_f_1d(a_f_pol[i_z, i_w, i_a])
+            #if individual (z, w, a) tries to get out of the formal sector
+            else
+                J_f_unc[i_z, i_w, i_a] = profit[i_z, i_w] + β*(1-δ_f)*(1-λ_f * prob_i)*J_f_1d(a_f_pol[i_z, i_w, i_a])
+            end
+        end
+    end
+
+    θ_f_unc = update_θ!(θ_f_unc, J_f_unc, params)
+
+    return J_f_unc, θ_f_unc
 end
 
 """
@@ -509,7 +540,6 @@ function unpack_params(params)
     
     #tax parameters
     τ = params["τ"]
-    τ_z = params["τ_z"]
     τ_w = params["τ_w"]
     I_u = params["I_u"]
 
@@ -539,11 +569,14 @@ function unpack_params(params)
 
     z = range(z_min, stop=z_max, length=N_z)
     w = range(w_min, stop=w_max, length=N_w)
-    a = range(a_min, stop=a_max, length=N_a)
+    #a = range(a_min, stop=a_max, length=N_a)
+    #To get a finer grid on the part where most agents are
+    a = vcat(range(a_min, stop=5, length=Integer(floor(N_a*0.50))), range(5 + (a_max-5)/ceil(N_a*0.50), stop=a_max, length=Integer(ceil(N_a*0.50))))
+
     grid_index = collect(Iterators.product(1:N_z, 1:N_w, 1:N_a))
 
     return r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
-    prob_i, τ, τ_z, τ_w, I_u, distribution_a, distribution_b,
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
     informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
     w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a
 end
@@ -554,9 +587,11 @@ Assumes a new N_z, N_w, N_a
 """
 function resize_all(J_f, V_f, V_i, V_u, θ_f, params_new)
     r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
-    prob_i, τ, τ_z, τ_w, I_u, distribution_a, distribution_b, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
     informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
     w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params_new)
+
+
 
     J_f_new = zeros(N_z, N_w, N_a)
     V_f_new = zeros(N_z, N_w, N_a)
@@ -651,7 +686,7 @@ function simulation_baseline(V_f, V_i, V_u, θ_f, N_ind, T, params)
     ## Starts the vectors of population
 
     r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
-    prob_i, τ, τ_z, τ_w, I_u, distribution_a, distribution_b, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
     informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
     w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params)
 
@@ -783,7 +818,7 @@ R_uf_fun, R_ui_fun, w_ff_pol_fun, w_if_pol_fun, w_uf_pol_fun, θ_f_fun, informal
 function simulation_get_all_funs(V_f, V_i, V_u, θ_f, params)
 
     r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
-    prob_i, τ, τ_z, τ_w, I_u, distribution_a, distribution_b, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
     informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
     w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params)
 
@@ -829,7 +864,7 @@ OUTPUT:
 function simulation_transition_t!(z_ind, w_ind, a_ind, status_ind, m_unemp, params, all_funs, N_ind)
 
     r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
-    prob_i, τ, τ_z, τ_w, I_u, distribution_a, distribution_b, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
     informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
     w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params)
 
@@ -938,7 +973,7 @@ This function accomplishes this.
 """
 function simulation_consumption(z_ind, w_ind, a_ind, status_ind, params, all_funs, N_ind)
     r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
-    prob_i, τ, τ_z, τ_w, I_u, distribution_a, distribution_b, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
     informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
     w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params)
 
@@ -979,7 +1014,7 @@ mean_consumption_f, mean_consumption_i, mean_consumption_u, mean_ability_f, mean
 N_ind, t)
 
     r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
-    prob_i, τ, τ_z, τ_w, I_u, distribution_a, distribution_b, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
     informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
     w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params)
 
@@ -1038,7 +1073,7 @@ function simulation_policy_welfare(z_ind_0, w_ind_0, a_ind_0, c_ind_0, status_in
 V_f_0, V_i_0, V_u_0, θ_f_0, V_f_1, V_i_1, V_u_1, θ_f_1, params_0, params_1, N_ind, T)
 
     r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
-    prob_i, τ, τ_z, τ_w, I_u, distribution_a, distribution_b, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
     informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
     w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params_0)
 
@@ -1138,4 +1173,178 @@ V_f_0, V_i_0, V_u_0, θ_f_0, V_f_1, V_i_1, V_u_1, θ_f_1, params_0, params_1, N_
 
     return EC_ind, EC_aggregate, EC_aggregate_formal, EC_aggregate_informal
 
+end
+
+function simulation_baseline_graba(V_f, V_i, V_u, θ_f, N_ind, T, params, ngraba)
+
+    ## Starts the vectors of population
+
+    r, β, σ, 𝛾, δ_f, δ_i, xi, rho, λ_f, λ_i, λ_u, k_f, y_f, 
+    prob_i, τ, τ_w, I_u, distribution_a, distribution_b,
+    informal_I_distribution, u, p, q, q_inv, z_min, z_max, w_min, 
+    w_max, a_min, a_max, z, w, a, grid_index, N_z, N_w, N_a = unpack_params(params)
+
+    V_f, V_i, V_u, sector_f_pol, sector_i_pol, sector_u_pol, a_f_pol, a_i_pol, a_u_pol, w_ff_pol, w_if_pol, w_uf_pol,
+    R_ff, R_fi, R_if, R_ii, R_uf, R_ui = 
+    get_policy(V_f, V_i, V_u, θ_f, params);
+
+    ######### Empieza Graficas ######################
+
+    #This is the custum color gradient. Basically algae but the very first is yellow,
+    #for informal sector.
+    my_colors_1 = deepcopy(ColorSchemes.algae)
+    my_colors_1.colors[1] = RGB{Float64}(1, 1, 0)
+
+    ## Sector choice + wage choice, unemployed without insurance
+
+    sector_choice_u = R_uf - R_ui #Which reward is greater determines where the agent goes
+    sector_choice_u_fun = linear_interpolation((z, w, a), sector_choice_u)
+    w_uf_pol_fun = linear_interpolation((z, w, a), w_uf_pol)
+    p_θ_f_fun = linear_interpolation((z, w, a), p.(θ_f))
+    a_heatmap = range(a_min, stop=a_max, length=1000)
+    z_heatmap = range(z_min, stop=z_max, length=1000)
+    sector_choice1_heatmap = zeros(1000, 1000)
+    for i = 1:1000, j = 1:1000
+        if sector_choice_u_fun(z_heatmap[i], 0.0, a_heatmap[j]) > 0.0
+            sector_choice1_heatmap[i, j] = w_uf_pol_fun(z_heatmap[i], 0.0, a_heatmap[j])
+        else
+            sector_choice1_heatmap[i, j] = 0.0
+        end
+    end
+
+    p1 = heatmap(z_heatmap, a_heatmap, sector_choice1_heatmap',
+        c = cgrad(my_colors_1),
+        #clim = (0, max(0.8, maximum(sector_choice1_heatmap))), #color limits
+        clim = (0, 0.9),
+        xlabel="ability (z)", ylabel="wealth (a)",
+        title="a) Unemployed",
+        titlefontsize = 13,
+        guidefontsize = 10,
+        colorbar_title = "wage searched",
+        colorbar = false
+    )
+    annotate!([(0.01, 1, text("informal", 12, :left), :black), (0.30, 3, text("formal", 12, :left), :black)])
+
+    ## informal sector + wage choice
+
+    sector_choice_i = R_if - R_ii #Which reward is greater determines where the agent goes
+    #sector_choice_i_smooth = smooths_wealth(sector_choice_i, params) #smooths in the wealth dimension for plot
+    #sector_choice_i_fun = linear_interpolation((z, w, a), sector_choice_i_smooth)
+    sector_choice_i_fun = linear_interpolation((z, w, a), sector_choice_i) #uncomment if you want to see it without smoothing
+    w_if_pol_fun = linear_interpolation((z, w, a), w_if_pol)
+    sector_choice_informal_heatmap = zeros(1000, 1000)
+    for i = 1:1000, j = 1:1000
+        if sector_choice_i_fun(z_heatmap[i], 0.0, a_heatmap[j]) > 0
+            sector_choice_informal_heatmap[i, j] = 0.30#w_if_pol_fun(z_heatmap[i], 0.0, a_heatmap[j])
+        else
+            sector_choice_informal_heatmap[i, j] = 0.0
+        end
+    end
+        
+    p2 = heatmap(z_heatmap, a_heatmap, sector_choice_informal_heatmap',
+        c=cgrad(my_colors_1),
+        #clim = (0, min(0.8, maximum(sector_choice_informal_heatmap))), #color limits
+        clim = (0, 0.9),
+        xlabel="ability (z)", ylabel="wealth (a)",
+        title="b) Informal worker",
+        titlefontsize = 13,
+        guidefontsize = 10,
+        colorbar_title = "wage searched",
+        colorbar = false
+    )
+    annotate!([(0.01, 1.0, text("informal", 12, :left), :black), (0.30, 3, text("formal", 12, :left), :black)])
+    
+    ## formal sector with low wage + wage choice
+    sector_choice_f = R_ff - R_fi #Which reward is greater determines where the agent goes
+    sector_choice_f_fun = linear_interpolation((z, w, a), sector_choice_f)
+    w_ff_pol_fun = linear_interpolation((z, w, a), w_ff_pol)
+    sector_choice_formal_heatmap = zeros(1000, 1000)
+    for i = 1:1000, j = 1:1000
+        if sector_choice_f_fun(z_heatmap[i], 0.15, a_heatmap[j]) > 0
+            sector_choice_formal_heatmap[i, j] = w_ff_pol_fun(z_heatmap[i], 0.15, a_heatmap[j])
+        else
+            sector_choice_formal_heatmap[i, j] = 0.0
+        end
+    end
+
+    p3 = heatmap(z_heatmap, a_heatmap, sector_choice_formal_heatmap',
+        c=cgrad(my_colors_1),
+        #clim = (0, max(0.8, maximum(sector_choice_formal_heatmap))), #color limits
+        clim = (0, 0.9),
+        xlabel="ability (z)", ylabel="wealth (a)",
+        title="c) Formal worker, low wage",
+        titlefontsize = 13,
+        guidefontsize = 10,
+        colorbar_title = "wage searched",
+        colorbar = false
+    )
+    annotate!([(0.01, 1, text("informal", 12, :left), :black), (0.30, 3, text("formal", 12, :left), :black)])
+
+    ## formal sector on the job search
+    sector_choice_f = R_ff - R_fi #Which reward is greater determines where the agent goes
+    sector_choice_f_fun = linear_interpolation((z, w, a), sector_choice_f)
+    w_ff_pol_fun = linear_interpolation((z, w, a), w_ff_pol)
+    sector_choice_formal2_heatmap = zeros(1000, 1000)
+    reference_w = 0.505 #median wage, check in simulation
+    for i = 1:1000, j = 1:1000
+        if sector_choice_f_fun(z_heatmap[i], reference_w, a_heatmap[j]) > 0
+            sector_choice_formal2_heatmap[i, j] = w_ff_pol_fun(z_heatmap[i], reference_w, a_heatmap[j])
+        else
+            sector_choice_formal2_heatmap[i, j] = 0.0
+        end
+    end
+
+    p4 = heatmap(z_heatmap, a_heatmap, sector_choice_formal2_heatmap',
+        #c = cgrad(my_colors_1),
+        #clim = (0, 0.9),
+        xlabel="ability (z)", ylabel="wealth (a)",
+        title="d) Formal worker, median wage",
+        titlefontsize = 13,
+        guidefontsize = 10,
+        colorbar_title = "wage searched",
+        colorbar = false
+    )
+
+    p = plot(p1, p2, p3, p4, layout = (2, 2), link = :both,
+    size = (750, 750))
+
+    display(p)
+
+    z_ind = rand(Beta(distribution_a, distribution_b), N_ind)
+    #w_ind = rand(Uniform(w_min, w_max), N_ind)
+    w_ind = zeros(N_ind)
+    a_ind = zeros(N_ind)
+    status_ind = rand([1, 2, 3], N_ind) #1 formal, 2 informal, 3 unemployed
+    m_unemp = zeros(N_ind) #How many months unemployed. 0 if not unemployed
+
+    ## Gets the policy functions
+
+    all_funs = simulation_get_all_funs(V_f, V_i, V_u, θ_f, params)
+
+    # Starts simulation
+    println("Simulating...")
+    for t = ProgressBar(1:T)
+        simulation_transition_t!(z_ind, w_ind, a_ind, status_ind, m_unemp, params, all_funs, N_ind)    
+    end
+
+
+    per_form_graba = zeros(ngraba)
+    per_u_graba = zeros(ngraba)
+    for t = 1:ngraba
+        simulation_transition_t!(z_ind, w_ind, a_ind, status_ind, m_unemp, params, all_funs, N_ind)
+
+        per_f = sum(status_ind .== 1)/N_ind*100 #formal percentage
+        per_i = sum(status_ind .== 2)/N_ind*100 #informal percentage
+
+        per_informality = per_i ./(per_f + per_i)*100 #percentage of informality in the economy
+        per_u = sum(status_ind .== 3)/N_ind*100 #unemployment percentage
+
+        per_form_graba[t] = per_informality
+        per_u_graba[t] = per_u
+    end
+
+    mean_per_formality = mean(per_form_graba)
+    mean_per_u = mean(per_u_graba)
+
+    return mean_per_formality, mean_per_u
 end
