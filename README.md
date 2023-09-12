@@ -1,7 +1,7 @@
 # tacklinginformality
 Code of the paper "Tackling Informality and Inequality: A Directed Search Model". By Emiliano Rojas Eng
 
-**Tackling_Informality_and_Inequality__A_Directed_Search_Model.pdf** is the pdf with the full paper
+``Tackling_Informality_and_Inequality__A_Directed_Search_Model.pdf`` is the pdf with the full paper
 
 ``main_ERE-TII`` simulates the baseline model and the Figures in the section "Results"
 
